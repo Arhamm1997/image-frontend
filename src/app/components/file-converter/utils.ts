@@ -79,7 +79,7 @@ export async function createFilePreview(
   return undefined;
 }
 
-const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:8000';
+const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? 'https://image-backend-lslc.onrender.com/';
 
 export async function convertFile(
   uploadedFile: UploadedFile,
