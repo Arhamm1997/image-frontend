@@ -166,7 +166,7 @@ export function getSupportedFormats(type: FileType): string[] {
     image: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg', 'ico', 'tiff', 'avif'],
     video: ['mp4', 'webm', 'avi', 'mov', 'mkv', 'flv', 'wmv'],
     audio: ['mp3', 'wav', 'ogg', 'aac', 'flac', 'm4a', 'wma'],
-    document: ['pdf', 'docx', 'txt', 'xlsx', 'csv', 'pptx', 'rtf', 'odt', 'doc', 'xls', 'ppt'],
+    document: ['pdf', 'docx', 'txt', 'xlsx', 'xls', 'csv', 'rtf'],
     other: ['jpg', 'jpeg', 'png', 'webp', 'pdf', 'docx', 'xlsx', 'txt', 'mp4', 'mp3'],
   };
   
