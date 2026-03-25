@@ -6,27 +6,39 @@ export function generateUniqueId(): string {
   return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 }
 
-// Get file type based on MIME type
+const ARCHIVE_EXTS = new Set([
+  'zip','7z','rar','tar','gz','bz2','xz','lz','lzma','lzo','zst',
+  'tgz','tbz','txz','cab','iso','dmg','img','jar','ace','arj','arc',
+]);
+const SPREADSHEET_EXTS = new Set(['xlsx','xls','xlsm','ods','csv','tsv','et','numbers']);
+const PRESENTATION_EXTS = new Set(['pptx','ppt','pptm','odp','key']);
+
+// Get file type based on extension + MIME type
 export function getFileType(file: File): FileType {
-  const mimeType = file.type.toLowerCase();
-  
-  if (mimeType.startsWith('image/')) return 'image';
-  if (mimeType.startsWith('video/')) return 'video';
-  if (mimeType.startsWith('audio/')) return 'audio';
-  if (mimeType.includes('zip') || mimeType.includes('x-compressed') || mimeType === 'application/octet-stream' && file.name.toLowerCase().endsWith('.zip')) return 'other';
+  const mime = file.type.toLowerCase();
+  const ext  = (file.name.split('.').pop() ?? '').toLowerCase();
+
+  if (mime.startsWith('image/') || mime === 'image/heic') return 'image';
+  if (mime.startsWith('video/')) return 'video';
+  if (mime.startsWith('audio/')) return 'audio';
+
+  if (ARCHIVE_EXTS.has(ext) || mime.includes('zip') || mime.includes('x-tar') ||
+      mime.includes('x-rar') || mime.includes('x-7z') || mime.includes('x-compressed')) {
+    return 'archive';
+  }
+  if (SPREADSHEET_EXTS.has(ext) || mime.includes('spreadsheet') || mime.includes('excel')) {
+    return 'spreadsheet';
+  }
+  if (PRESENTATION_EXTS.has(ext) || mime.includes('presentation') || mime.includes('powerpoint')) {
+    return 'presentation';
+  }
   if (
-    mimeType.includes('pdf') ||
-    mimeType.includes('document') ||
-    mimeType.includes('text') ||
-    mimeType.includes('word') ||
-    mimeType.includes('excel') ||
-    mimeType.includes('powerpoint') ||
-    mimeType.includes('spreadsheet') ||
-    mimeType.includes('presentation')
+    mime.includes('pdf') || mime.includes('document') || mime.includes('text') ||
+    mime.includes('word') || mime.includes('opendocument')
   ) {
     return 'document';
   }
-  
+
   return 'other';
 }
 
@@ -82,9 +94,10 @@ export async function createFilePreview(
 
 const API_BASE_URL = ((import.meta.env.VITE_API_URL as string | undefined) ?? 'https://image-backend-lslc.onrender.com').replace(/\/+$/, '');
 
-/** Fire-and-forget ping to wake the backend up (call on app mount). */
+/** Fire-and-forget ping to wake the backend up (call on app mount).
+ *  Uses no-cors so it doesn't throw CORS errors in the console during cold start. */
 export function warmUpBackend(): void {
-  fetch(`${API_BASE_URL}/health`).catch(() => {});
+  fetch(`${API_BASE_URL}/health`, { mode: 'no-cors' }).catch(() => {});
 }
 
 export async function convertFile(
@@ -110,12 +123,16 @@ export async function convertFile(
     try {
       response = await fetch(`${API_BASE_URL}/api/convert`, { method: 'POST', body: formData });
     } catch {
-      // Backend is sleeping (Render free tier cold start). Poll /health until it wakes, then retry.
+      // Backend is cold-starting (Render free tier). Poll until alive, then retry.
+      // We use no-cors pings to avoid CORS console errors, then confirm with a real request.
       toast.loading('Server is waking up… please wait (~30 s)', { id: 'wakeup' });
       let awake = false;
-      for (let i = 1; i <= 15; i++) {
-        onProgress(10 + i * 2); // 12 → 40% while waiting
-        await new Promise(res => setTimeout(res, 5000));
+      for (let i = 1; i <= 18; i++) {
+        onProgress(10 + i * 2); // 12 → 46 % while waiting
+        await new Promise(r => setTimeout(r, 5000));
+        // no-cors ping just to prod Render into waking up (no CORS error spam)
+        fetch(`${API_BASE_URL}/health`, { mode: 'no-cors' }).catch(() => {});
+        // Real check with CORS — succeeds only once the actual app is running
         try {
           const h = await fetch(`${API_BASE_URL}/health`);
           if (h.ok) { awake = true; break; }
@@ -123,7 +140,7 @@ export async function convertFile(
       }
       toast.dismiss('wakeup');
       if (!awake) {
-        return { success: false, error: 'Server did not respond after 75 s. Please try again in a moment.' };
+        return { success: false, error: 'Server did not respond after 90 s. Please try again in a moment.' };
       }
       // Rebuild formData (consumed by first attempt) and retry
       const fd2 = new FormData();
@@ -179,15 +196,17 @@ export function formatBytes(bytes: number): string {
   return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
 }
 
-// Get supported formats for file type
+// Get suggested formats for a file type (used as hint, FormatPicker shows all)
 export function getSupportedFormats(type: FileType): string[] {
   const formats: Record<FileType, string[]> = {
-    image: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg', 'ico', 'tiff', 'avif'],
-    video: ['mp4', 'webm', 'avi', 'mov', 'mkv', 'flv', 'wmv'],
-    audio: ['mp3', 'wav', 'ogg', 'aac', 'flac', 'm4a', 'wma'],
-    document: ['pdf', 'docx', 'txt', 'xlsx', 'xls', 'csv', 'rtf'],
-    other: ['jpg', 'jpeg', 'png', 'webp', 'pdf', 'docx', 'xlsx', 'txt', 'mp4', 'mp3'],
+    image:        ['jpg', 'png', 'webp', 'gif', 'bmp', 'svg', 'ico', 'tiff', 'avif'],
+    video:        ['mp4', 'webm', 'avi', 'mov', 'mkv', 'flv', 'wmv', 'ogv', 'mpg'],
+    audio:        ['mp3', 'wav', 'ogg', 'aac', 'flac', 'm4a', 'wma', 'opus', 'aiff'],
+    document:     ['pdf', 'docx', 'txt', 'rtf', 'odt', 'html', 'csv'],
+    archive:      ['zip', 'tar', 'tar.gz', 'tar.bz2', '7z'],
+    spreadsheet:  ['xlsx', 'csv', 'ods', 'pdf', 'txt'],
+    presentation: ['pptx', 'pdf', 'txt'],
+    other:        ['jpg', 'png', 'pdf', 'docx', 'mp4', 'mp3', 'zip'],
   };
-  
-  return formats[type] || [];
+  return formats[type] ?? [];
 }

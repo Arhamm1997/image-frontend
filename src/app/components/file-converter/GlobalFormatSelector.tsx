@@ -1,7 +1,7 @@
 import { motion } from 'motion/react';
 import { ArrowRight, Check, ChevronDown, Zap } from 'lucide-react';
-import { getSupportedFormats } from './utils';
 import { FileType } from './types';
+import { FormatPicker } from './FormatPicker';
 
 interface GlobalFormatSelectorProps {
   fromFormat: string;
@@ -66,13 +66,7 @@ export function GlobalFormatSelector({
   const hasMultipleFroms = availableFormats.length > 1;
   const canApply         = !!toFormat && !!fromFormat && !disabled && fileCount > 0;
 
-  const uniqueFileTypes = Array.from(new Set(fileTypes));
-  const targetFormats   = uniqueFileTypes.length === 1
-    ? getSupportedFormats(uniqueFileTypes[0])
-    : Array.from(new Set(uniqueFileTypes.flatMap(t => getSupportedFormats(t))));
-
   const fromPalette = fromFormat ? palette(fromFormat) : DEFAULT_PALETTE;
-  const toPalette   = toFormat   ? palette(toFormat)   : DEFAULT_PALETTE;
 
   return (
     <motion.div
@@ -166,24 +160,14 @@ export function GlobalFormatSelector({
             <label className="block text-[10px] font-semibold tracking-widest text-gray-400 uppercase mb-1.5">
               To
             </label>
-            <div className="relative">
-              <select
-                value={toFormat}
-                onChange={e => onToFormatChange(e.target.value)}
-                disabled={disabled}
-                className={`w-full appearance-none pl-3 pr-9 py-2.5 border-2 rounded-xl text-sm font-semibold focus:outline-none transition-all disabled:opacity-50 cursor-pointer hover:border-gray-300
-                  ${toFormat
-                    ? `${toPalette.bg} ${toPalette.border} ${toPalette.text} focus:border-orange-400`
-                    : 'bg-gray-50 border-gray-200 text-gray-400 focus:border-orange-400 focus:bg-white'
-                  }`}
-              >
-                <option value="">Choose target format</option>
-                {targetFormats.map(fmt => (
-                  <option key={fmt} value={fmt}>.{fmt}</option>
-                ))}
-              </select>
-              <ChevronDown className={`absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none ${toFormat ? toPalette.text : 'text-gray-400'}`} />
-            </div>
+            <FormatPicker
+              value={toFormat}
+              onChange={onToFormatChange}
+              currentFormat={availableFormats.length === 1 ? availableFormats[0] : undefined}
+              disabled={disabled}
+              placeholder="Choose target format"
+              align="center"
+            />
           </div>
 
           {/* Apply button */}

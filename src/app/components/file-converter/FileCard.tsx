@@ -14,7 +14,8 @@ import {
   XCircle,
 } from 'lucide-react';
 import { UploadedFile } from './types';
-import { formatBytes, getSupportedFormats } from './utils';
+import { formatBytes } from './utils';
+import { FormatPicker } from './FormatPicker';
 
 interface FileCardProps {
   file: UploadedFile;
@@ -50,16 +51,10 @@ export function FileCard({
     }
   };
 
-  const supportedFormats = getSupportedFormats(file.type);
   const canConvert = file.status === 'idle' && file.targetFormat;
   const isConverting = file.status === 'converting';
   const isCompleted = file.status === 'completed';
   const isError = file.status === 'error';
-
-  // Filter out the current format from the target formats
-  const availableTargetFormats = supportedFormats.filter(
-    format => format.toLowerCase() !== file.currentFormat?.toLowerCase()
-  );
 
   return (
     <motion.div
@@ -129,20 +124,14 @@ export function FileCard({
 
         {/* Format Selector */}
         {!isCompleted && !isConverting && (
-          <div className="flex-shrink-0">
-            <select
+          <div className="flex-shrink-0 w-44">
+            <FormatPicker
               value={file.targetFormat || ''}
-              onChange={(e) => onFormatChange(file.id, e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+              onChange={(fmt) => onFormatChange(file.id, fmt)}
+              currentFormat={file.currentFormat}
               disabled={isError}
-            >
-              <option value="">Select format</option>
-              {availableTargetFormats.map((format) => (
-                <option key={format} value={format}>
-                  .{format}
-                </option>
-              ))}
-            </select>
+              align="right"
+            />
           </div>
         )}
 
