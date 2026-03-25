@@ -96,28 +96,36 @@ export function FormatPicker({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef   = useRef<HTMLDivElement>(null);
 
-  // Close on outside click
+  // Close on outside click — also handles scrollbar clicks (target may be document)
   useEffect(() => {
     const h = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (
-        triggerRef.current && !triggerRef.current.contains(t) &&
-        panelRef.current   && !panelRef.current.contains(t)
-      ) setOpen(false);
+      if (triggerRef.current?.contains(e.target as Node)) return;
+      if (panelRef.current) {
+        if (panelRef.current.contains(e.target as Node)) return;
+        // Scrollbar click: target is outside DOM but coords are inside panel rect
+        const r = panelRef.current.getBoundingClientRect();
+        if (e.clientX >= r.left && e.clientX <= r.right &&
+            e.clientY >= r.top  && e.clientY <= r.bottom) return;
+      }
+      setOpen(false);
     };
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
   }, []);
 
-  // Close on scroll / resize
+  // Close on page scroll (but NOT when scrolling inside the panel) or resize
   useEffect(() => {
     if (!open) return;
-    const close = () => setOpen(false);
-    window.addEventListener('scroll', close, true);
-    window.addEventListener('resize', close);
+    const onScroll = (e: Event) => {
+      if (panelRef.current?.contains(e.target as Node)) return; // scrolling inside panel — keep open
+      setOpen(false);
+    };
+    const onResize = () => setOpen(false);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onResize);
     return () => {
-      window.removeEventListener('scroll', close, true);
-      window.removeEventListener('resize', close);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onResize);
     };
   }, [open]);
 
