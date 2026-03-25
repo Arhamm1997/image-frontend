@@ -100,48 +100,46 @@ export async function convertFile(
 
     onProgress(30);
 
-    // Retry once on network failure to handle Render cold-start spin-up (~30s)
     let response: Response;
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      try {
-        response = await fetch(`${API_BASE_URL}/api/convert`, {
-          method: 'POST',
-          body: attempt === 1 ? formData : (() => { const fd = new FormData(); fd.append('file', file); fd.append('target_format', targetFormat); return fd; })(),
-        });
-        break;
-      } catch (fetchErr) {
-        if (attempt === 2) throw fetchErr;
-        // Wait 35s for Render free-tier cold start, then retry
-        onProgress(40);
-        await new Promise(res => setTimeout(res, 35000));
-        onProgress(50);
+    try {
+      response = await fetch(`${API_BASE_URL}/api/convert`, { method: 'POST', body: formData });
+    } catch {
+      // Backend is sleeping (Render free tier). Poll /health until it wakes, then retry.
+      let awake = false;
+      for (let i = 1; i <= 8; i++) {
+        onProgress(10 + i * 3); // 13 → 34% while waiting
+        await new Promise(res => setTimeout(res, 5000));
+        try {
+          const h = await fetch(`${API_BASE_URL}/health`);
+          if (h.ok) { awake = true; break; }
+        } catch { /* still starting */ }
       }
+      if (!awake) {
+        return { success: false, error: 'Server did not respond after 40 s. Please try again.' };
+      }
+      // Rebuild formData (consumed by first attempt) and retry
+      const fd2 = new FormData();
+      fd2.append('file', file);
+      fd2.append('target_format', targetFormat);
+      response = await fetch(`${API_BASE_URL}/api/convert`, { method: 'POST', body: fd2 });
     }
 
     onProgress(80);
 
-    if (!response!.ok) {
-      let errorMsg = `Conversion failed (HTTP ${response!.status})`;
+    if (!response.ok) {
+      let errorMsg = `Conversion failed (HTTP ${response.status})`;
       try {
-        const errData = await response!.json() as { detail?: string };
+        const errData = await response.json() as { detail?: string };
         if (errData.detail) errorMsg = errData.detail;
-      } catch {
-        // ignore JSON parse error
-      }
+      } catch { /* ignore */ }
       return { success: false, error: errorMsg };
     }
 
-    const blob = await response!.blob();
+    const blob = await response.blob();
     onProgress(100);
     return { success: true, blob };
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Unknown error';
-    if (msg.toLowerCase().includes('fetch') || msg.toLowerCase().includes('network') || msg === 'Failed to fetch') {
-      return {
-        success: false,
-        error: 'The server is starting up (Render free tier). Please wait 30 seconds and try again.',
-      };
-    }
     return { success: false, error: msg };
   }
 }
