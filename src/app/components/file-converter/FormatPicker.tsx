@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { Search, ChevronDown } from 'lucide-react';
 
 // ── All categories and their formats ─────────────────────────────────────────
@@ -91,19 +92,63 @@ export function FormatPicker({
   const [open, setOpen]         = useState(false);
   const [category, setCategory] = useState(() => getCategoryForExt(currentFormat ?? ''));
   const [search, setSearch]     = useState('');
-  const ref                     = useRef<HTMLDivElement>(null);
+  const [panelStyle, setPanelStyle] = useState<React.CSSProperties>({});
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef   = useRef<HTMLDivElement>(null);
 
+  // Close on outside click
   useEffect(() => {
     const h = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (
+        triggerRef.current && !triggerRef.current.contains(t) &&
+        panelRef.current   && !panelRef.current.contains(t)
+      ) setOpen(false);
     };
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
   }, []);
 
+  // Close on scroll / resize
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => {
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
+  }, [open]);
+
   useEffect(() => {
     if (currentFormat) setCategory(getCategoryForExt(currentFormat));
   }, [currentFormat]);
+
+  // Compute fixed position from trigger rect
+  const computePos = useCallback(() => {
+    if (!triggerRef.current) return;
+    const r   = triggerRef.current.getBoundingClientRect();
+    const PW  = 340;
+    const GAP = 6;
+    const vw  = window.innerWidth;
+
+    let left: number;
+    if (align === 'right')  left = r.right  - PW;
+    else if (align === 'center') left = r.left + r.width / 2 - PW / 2;
+    else                    left = r.left;
+
+    // Keep inside viewport
+    left = Math.max(8, Math.min(left, vw - PW - 8));
+
+    setPanelStyle({ position: 'fixed', top: r.bottom + GAP, left, width: PW, zIndex: 99999 });
+  }, [align]);
+
+  const handleOpen = () => {
+    if (disabled) return;
+    if (!open) computePos();
+    setOpen(o => !o);
+  };
 
   const lsearch = search.toLowerCase().trim();
 
@@ -122,22 +167,184 @@ export function FormatPicker({
   const displayFormats = (searchResults ?? FORMAT_CATEGORIES[category] ?? [])
     .filter(f => f.toLowerCase() !== currentFormat?.toLowerCase());
 
-  const panelClass =
-    align === 'right'  ? 'right-0' :
-    align === 'center' ? 'left-1/2 -translate-x-1/2' :
-    'left-0';
-
   const activeCat = CAT_COLORS[category] ?? CAT_COLORS.Document;
   const activeVal = value ? CAT_COLORS[getCategoryForExt(value)] ?? activeCat : activeCat;
 
-  return (
-    <div ref={ref} className="relative">
+  // ── Panel (rendered via portal to escape overflow:hidden parents) ──────────
+  const panel = open ? createPortal(
+    <div
+      ref={panelRef}
+      style={{
+        ...panelStyle,
+        background: '#111827',
+        borderRadius: 16,
+        overflow: 'hidden',
+        boxShadow: '0 24px 60px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.07)',
+      }}
+    >
+      {/* Gradient accent line */}
+      <div style={{
+        height: 2,
+        background: `linear-gradient(90deg, ${activeCat.from}, ${activeCat.to}, #ec4899)`,
+      }} />
 
+      {/* Search bar */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 10,
+        padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.06)',
+      }}>
+        <Search style={{ width: 14, height: 14, flexShrink: 0, color: activeCat.from }} />
+        <input
+          autoFocus
+          type="text"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search Format"
+          style={{
+            flex: 1, background: 'transparent', border: 'none', outline: 'none',
+            fontSize: 13, color: '#e5e7eb',
+          }}
+        />
+        {search && (
+          <button
+            onClick={() => setSearch('')}
+            style={{ background: 'none', border: 'none', cursor: 'pointer',
+                     color: '#6b7280', fontSize: 12, padding: 0 }}
+          >✕</button>
+        )}
+      </div>
+
+      {/* Body: category list + format grid */}
+      <div style={{ display: 'flex', maxHeight: 300 }}>
+
+        {/* Category column */}
+        {!lsearch && (
+          <div style={{
+            width: 122, flexShrink: 0, overflowY: 'auto',
+            borderRight: '1px solid rgba(255,255,255,0.06)', paddingBlock: 6,
+          }}>
+            {Object.keys(FORMAT_CATEGORIES).map(cat => {
+              const isActive = cat === category;
+              const cc = CAT_COLORS[cat] ?? CAT_COLORS.Document;
+              return (
+                <button
+                  key={cat}
+                  onClick={() => setCategory(cat)}
+                  style={{
+                    width: '100%', textAlign: 'left', padding: '7px 12px',
+                    fontSize: 12, fontWeight: isActive ? 600 : 400,
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4,
+                    background: isActive ? cc.light : 'transparent',
+                    color: isActive ? cc.from : '#9ca3af',
+                    border: 'none', cursor: 'pointer', transition: 'all 0.12s',
+                  }}
+                  onMouseEnter={e => {
+                    if (!isActive) (e.currentTarget as HTMLButtonElement).style.color = '#e5e7eb';
+                  }}
+                  onMouseLeave={e => {
+                    if (!isActive) (e.currentTarget as HTMLButtonElement).style.color = '#9ca3af';
+                  }}
+                >
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {cat}
+                  </span>
+                  {isActive && (
+                    <span style={{
+                      width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                      background: cc.from,
+                    }} />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Format grid */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: 8 }}>
+          {displayFormats.length === 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center',
+                          justifyContent: 'center', height: '100%', gap: 8, padding: '24px 0' }}>
+              <Search style={{ width: 22, height: 22, color: '#374151' }} />
+              <span style={{ fontSize: 12, color: '#4b5563' }}>No formats found</span>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 5 }}>
+              {displayFormats.map(fmt => {
+                const isSelected = value === fmt;
+                const fc = CAT_COLORS[getCategoryForExt(fmt)] ?? activeCat;
+                return (
+                  <button
+                    key={fmt}
+                    title={`.${fmt}`}
+                    onClick={() => { onChange(fmt); setOpen(false); setSearch(''); }}
+                    style={isSelected ? {
+                      padding: '9px 4px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                      fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      background: `linear-gradient(135deg,${fc.from},${fc.to})`,
+                      color: '#fff', boxShadow: `0 4px 12px ${fc.light}`,
+                      transition: 'all 0.12s',
+                    } : {
+                      padding: '9px 4px', borderRadius: 8, cursor: 'pointer',
+                      fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      background: 'rgba(255,255,255,0.04)', color: '#d1d5db',
+                      border: '1px solid rgba(255,255,255,0.06)',
+                      transition: 'all 0.12s',
+                    }}
+                    onMouseEnter={e => {
+                      if (!isSelected) {
+                        const el = e.currentTarget as HTMLButtonElement;
+                        el.style.background = fc.light;
+                        el.style.color = fc.from;
+                        el.style.border = `1px solid ${fc.from}55`;
+                      }
+                    }}
+                    onMouseLeave={e => {
+                      if (!isSelected) {
+                        const el = e.currentTarget as HTMLButtonElement;
+                        el.style.background = 'rgba(255,255,255,0.04)';
+                        el.style.color = '#d1d5db';
+                        el.style.border = '1px solid rgba(255,255,255,0.06)';
+                      }
+                    }}
+                  >
+                    {fmt.toUpperCase()}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div style={{
+        padding: '7px 14px', borderTop: '1px solid rgba(255,255,255,0.06)',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      }}>
+        <span style={{ fontSize: 10, color: '#4b5563' }}>
+          {lsearch
+            ? `${displayFormats.length} result${displayFormats.length !== 1 ? 's' : ''}`
+            : `${displayFormats.length} formats`}
+        </span>
+        <span style={{ fontSize: 10, color: activeCat.from }}>
+          {lsearch ? 'All categories' : category}
+        </span>
+      </div>
+    </div>,
+    document.body,
+  ) : null;
+
+  return (
+    <div className="relative">
       {/* ── Trigger button ──────────────────────────────────────── */}
       <button
+        ref={triggerRef}
         type="button"
         disabled={disabled}
-        onClick={() => !disabled && setOpen(o => !o)}
+        onClick={handleOpen}
         className={[
           'group relative inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold w-full',
           'border-2 transition-all duration-200 overflow-hidden',
@@ -152,7 +359,6 @@ export function FormatPicker({
             : {}
         }
       >
-        {/* Shimmer overlay on hover */}
         {!open && !value && (
           <span className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
                 style={{ background: 'linear-gradient(135deg,rgba(99,102,241,0.06),rgba(168,85,247,0.06))' }} />
@@ -165,154 +371,7 @@ export function FormatPicker({
         />
       </button>
 
-      {/* ── Dropdown panel ──────────────────────────────────────── */}
-      {open && (
-        <div
-          className={`absolute z-[9999] mt-2 ${panelClass} rounded-2xl overflow-hidden`}
-          style={{
-            width: 340,
-            background: '#111827',
-            boxShadow: '0 25px 50px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.06)',
-          }}
-        >
-          {/* Gradient top accent */}
-          <div className="h-[2px]"
-               style={{ background: `linear-gradient(90deg, ${activeCat.from}, ${activeCat.to}, #ec4899)` }} />
-
-          {/* Search bar */}
-          <div className="flex items-center gap-2.5 px-3.5 py-3 border-b border-white/[0.06]">
-            <Search className="w-3.5 h-3.5 flex-shrink-0" style={{ color: activeCat.from }} />
-            <input
-              autoFocus
-              type="text"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search Format"
-              className="flex-1 bg-transparent text-sm text-gray-200 placeholder-gray-600 outline-none"
-            />
-            {search && (
-              <button
-                onClick={() => setSearch('')}
-                className="text-gray-500 hover:text-gray-300 text-xs font-medium transition-colors"
-              >
-                ✕
-              </button>
-            )}
-          </div>
-
-          <div className="flex" style={{ maxHeight: 292 }}>
-
-            {/* ── Category list ──────────────────────────────────── */}
-            {!lsearch && (
-              <div
-                className="flex-shrink-0 overflow-y-auto py-1.5"
-                style={{ width: 118, borderRight: '1px solid rgba(255,255,255,0.06)' }}
-              >
-                {Object.keys(FORMAT_CATEGORIES).map(cat => {
-                  const isActive = cat === category;
-                  const cc = CAT_COLORS[cat] ?? CAT_COLORS.Document;
-                  return (
-                    <button
-                      key={cat}
-                      onClick={() => setCategory(cat)}
-                      className="w-full text-left px-3 py-1.5 text-xs font-medium transition-all duration-150 flex items-center justify-between gap-1"
-                      style={
-                        isActive
-                          ? {
-                              background: cc.light,
-                              color: cc.from,
-                            }
-                          : { color: '#9ca3af' }
-                      }
-                      onMouseEnter={e => {
-                        if (!isActive) (e.currentTarget as HTMLButtonElement).style.color = '#e5e7eb';
-                      }}
-                      onMouseLeave={e => {
-                        if (!isActive) (e.currentTarget as HTMLButtonElement).style.color = '#9ca3af';
-                      }}
-                    >
-                      <span className="truncate">{cat}</span>
-                      {isActive && (
-                        <span className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                              style={{ background: cc.from }} />
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* ── Format grid ────────────────────────────────────── */}
-            <div className="flex-1 overflow-y-auto p-2">
-              {displayFormats.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full py-8 gap-2">
-                  <Search className="w-6 h-6 text-gray-700" />
-                  <p className="text-gray-600 text-xs">No formats found</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-3 gap-1.5">
-                  {displayFormats.map(fmt => {
-                    const isSelected = value === fmt;
-                    const fc = CAT_COLORS[getCategoryForExt(fmt)] ?? activeCat;
-                    return (
-                      <button
-                        key={fmt}
-                        title={`.${fmt}`}
-                        onClick={() => { onChange(fmt); setOpen(false); setSearch(''); }}
-                        className="relative px-1 py-2.5 rounded-lg text-[11px] font-bold uppercase tracking-wide truncate transition-all duration-150 overflow-hidden"
-                        style={
-                          isSelected
-                            ? {
-                                background: `linear-gradient(135deg, ${fc.from}, ${fc.to})`,
-                                color: '#fff',
-                                boxShadow: `0 4px 12px ${fc.light}`,
-                              }
-                            : {
-                                background: 'rgba(255,255,255,0.04)',
-                                color: '#d1d5db',
-                                border: '1px solid rgba(255,255,255,0.06)',
-                              }
-                        }
-                        onMouseEnter={e => {
-                          if (!isSelected) {
-                            const el = e.currentTarget as HTMLButtonElement;
-                            el.style.background = fc.light;
-                            el.style.color = fc.from;
-                            el.style.border = `1px solid ${fc.from}40`;
-                          }
-                        }}
-                        onMouseLeave={e => {
-                          if (!isSelected) {
-                            const el = e.currentTarget as HTMLButtonElement;
-                            el.style.background = 'rgba(255,255,255,0.04)';
-                            el.style.color = '#d1d5db';
-                            el.style.border = '1px solid rgba(255,255,255,0.06)';
-                          }
-                        }}
-                      >
-                        {fmt.toUpperCase()}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Footer hint */}
-          <div className="px-3.5 py-2 border-t border-white/[0.06] flex items-center justify-between">
-            <span className="text-[10px] text-gray-600">
-              {lsearch
-                ? `${displayFormats.length} result${displayFormats.length !== 1 ? 's' : ''}`
-                : `${displayFormats.length} formats`}
-            </span>
-            <span className="text-[10px]"
-                  style={{ color: activeCat.from }}>
-              {lsearch ? 'All categories' : category}
-            </span>
-          </div>
-        </div>
-      )}
+      {panel}
     </div>
   );
 }

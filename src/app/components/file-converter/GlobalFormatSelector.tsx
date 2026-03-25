@@ -73,7 +73,7 @@ export function GlobalFormatSelector({
       initial={{ opacity: 0, y: -12 }}
       animate={{ opacity: 1, y:  0 }}
       transition={{ duration: 0.3, ease: 'easeOut' }}
-      className="relative overflow-hidden rounded-2xl bg-white border border-gray-100 shadow-[0_2px_16px_rgba(0,0,0,0.06)]"
+      className="relative rounded-2xl bg-white border border-gray-100 shadow-[0_2px_16px_rgba(0,0,0,0.06)]"
     >
       {/* Gradient top accent line */}
       <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-orange-400 via-pink-500 to-purple-500" />
