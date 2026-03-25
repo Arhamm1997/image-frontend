@@ -22,6 +22,7 @@ import {
   generateUniqueId,
   convertFile,
   downloadFile,
+  warmUpBackend,
 } from './components/file-converter/utils';
 
 export default function App() {
@@ -308,6 +309,9 @@ export default function App() {
 
   // Get file types for intelligent format selection
   const fileTypes = Array.from(new Set(files.map(f => f.type)));
+
+  // Warm up backend on mount so cold-start delay is minimized when user converts
+  useEffect(() => { warmUpBackend(); }, []);
 
   // Auto-detect source format when all uploaded files share the same format
   useEffect(() => {

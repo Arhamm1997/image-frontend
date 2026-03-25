@@ -1,4 +1,5 @@
 import { FileType, UploadedFile, ConversionResult } from './types';
+import { toast } from 'sonner';
 
 // Generate unique ID
 export function generateUniqueId(): string {
@@ -81,6 +82,11 @@ export async function createFilePreview(
 
 const API_BASE_URL = ((import.meta.env.VITE_API_URL as string | undefined) ?? 'https://image-backend-lslc.onrender.com').replace(/\/+$/, '');
 
+/** Fire-and-forget ping to wake the backend up (call on app mount). */
+export function warmUpBackend(): void {
+  fetch(`${API_BASE_URL}/health`).catch(() => {});
+}
+
 export async function convertFile(
   uploadedFile: UploadedFile,
   onProgress: (progress: number) => void
@@ -104,18 +110,20 @@ export async function convertFile(
     try {
       response = await fetch(`${API_BASE_URL}/api/convert`, { method: 'POST', body: formData });
     } catch {
-      // Backend is sleeping (Render free tier). Poll /health until it wakes, then retry.
+      // Backend is sleeping (Render free tier cold start). Poll /health until it wakes, then retry.
+      toast.loading('Server is waking up… please wait (~30 s)', { id: 'wakeup' });
       let awake = false;
-      for (let i = 1; i <= 8; i++) {
-        onProgress(10 + i * 3); // 13 → 34% while waiting
+      for (let i = 1; i <= 15; i++) {
+        onProgress(10 + i * 2); // 12 → 40% while waiting
         await new Promise(res => setTimeout(res, 5000));
         try {
           const h = await fetch(`${API_BASE_URL}/health`);
           if (h.ok) { awake = true; break; }
         } catch { /* still starting */ }
       }
+      toast.dismiss('wakeup');
       if (!awake) {
-        return { success: false, error: 'Server did not respond after 40 s. Please try again.' };
+        return { success: false, error: 'Server did not respond after 75 s. Please try again in a moment.' };
       }
       // Rebuild formData (consumed by first attempt) and retry
       const fd2 = new FormData();
